@@ -1,0 +1,11 @@
+.env
+jobhunter.db
+__pycache__/
+*.pyc
+*.pyo
+node_modules/
+frontend/dist/
+.venv/
+venv/
+*.egg-info/
+.DS_Store
