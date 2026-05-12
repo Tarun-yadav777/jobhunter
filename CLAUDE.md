@@ -868,8 +868,8 @@ Track what is complete. Update this section at the end of every session.
 | Component 5 — Profile page UI | ✅ Complete | Create profile, parse status polling, preferences form with TagInput, activate/delete/re-embed; ProfileSwitcher dropdown in header |
 | Component 5 — Paste page UI | ✅ Complete | Paste.jsx: JD textarea, POST /jobs/paste, 409 duplicate handling, POST /generate, 2s poll, ProgressBar with 3 steps (rag/gap_analysis/resume), redirect to /review/:id |
 | Component 5 — Review page UI | ✅ Complete | Review.jsx: sticky GapAnalysisPanel sidebar, DiffView (word-level diff + overlay edit pattern), CL AutoTextarea, 1s debounced auto-save on blur via refs (stale closure fix), approve flow; GapAnalysisPanel, AtsPanel, DiffView components |
-| Component 5 — Tracker page UI | ⬜ Not started | |
-| End to end test | ⬜ Not started | |
+| Component 5 — Tracker page UI | ✅ Complete | Tracker.jsx: table with company/role/location/date, debounced search (300ms), loading skeleton, empty state, Resume modal (ResumeView structured render), Cover Letter modal (plain text), inline .docx Download button; Modal with Escape-to-close, backdrop-click-to-close, Download .docx from modal header |
+| End to end test | ✅ Complete | Paste JD → generate (llama3.2) → review → approve → applications appear in tracker → resume/CL modals load → .docx downloads (36KB) |
 
 ---
 
