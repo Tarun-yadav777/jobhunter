@@ -45,9 +45,35 @@ async def init_db() -> bool:
     async with engine.begin() as conn:
         await conn.run_sync(ModelBase.metadata.create_all)
 
+    await _migrate_generation_status()
     vec_ok = await _init_sqlite_vec()
     await _seed_settings()
     return vec_ok
+
+
+async def _migrate_generation_status() -> None:
+    """Add gen_status / current_step / error_message to generation_results if missing.
+
+    SQLite does not support IF NOT EXISTS on ALTER TABLE ADD COLUMN before 3.35,
+    so we attempt each column and swallow the 'duplicate column' error.
+    """
+    from sqlalchemy import text
+
+    columns = [
+        ("gen_status",     "TEXT NOT NULL DEFAULT 'running'"),
+        ("current_step",   "TEXT"),
+        ("error_message",  "TEXT"),
+    ]
+    async with AsyncSessionLocal() as session:
+        for col_name, col_def in columns:
+            try:
+                await session.execute(
+                    text(f"ALTER TABLE generation_results ADD COLUMN {col_name} {col_def}")
+                )
+                await session.commit()
+                logger.info("Migrated: added generation_results.%s", col_name)
+            except Exception:
+                await session.rollback()  # column already exists — safe to ignore
 
 
 async def _init_sqlite_vec() -> bool:

@@ -859,8 +859,8 @@ Track what is complete. Update this section at the end of every session.
 | Component 2 — Profile system (embeddings) | ✅ Complete | all-MiniLM-L6-v2 loaded once at module level; semantic chunking (experience/skills/education/summary); 384-dim float32 BLOB; EmbeddingRun logged; reembed endpoint wired |
 | Component 2 — Profile system (preferences API) | ✅ Complete | GET/PATCH/DELETE /profiles, POST activate (bulk deactivate + settings sync), GET/PUT preferences (lazy-create defaults, JSON list deserialisation via field_validator) |
 | Component 3 — Job paste + parse | ✅ Complete | POST /jobs/paste: text-hash dedup (pre-Ollama), semantic dedup (title+company+location sha256), already-applied check, parse_log; GET /jobs/{id} + GET /jobs; field_validator on JobDetail JSON lists |
-| Component 4 — RAG retrieval | ⬜ Not started | |
-| Component 4 — Gap analysis | ⬜ Not started | |
+| Component 4 — RAG retrieval | ✅ Complete | Pure numpy cosine similarity; top-8 chunks; embed_text() helper in embedder.py |
+| Component 4 — Gap analysis | ✅ Complete | Ollama structured JSON via GAP_ANALYSIS_PROMPT; status tracking (gen_status/current_step/error_message) added to generation_results via runtime migration |
 | Component 4 — Resume tailoring + ATS | ⬜ Not started | |
 | Component 4 — Cover letter | ⬜ Not started | |
 | Component 5 — Generation storage + API | ⬜ Not started | |

@@ -19,6 +19,15 @@ _model: SentenceTransformer = SentenceTransformer(EMBEDDING_MODEL)
 logger.info("Embedding model '%s' loaded", EMBEDDING_MODEL)
 
 
+def embed_text(text: str) -> "np.ndarray":
+    """Embed a single string and return a normalised float32 vector (384-dim).
+
+    Uses the module-level model so there is no reload cost.
+    normalize_embeddings=True means dot product == cosine similarity.
+    """
+    return _model.encode([text], normalize_embeddings=True)[0]
+
+
 # ── Chunking ──────────────────────────────────────────────────────────────────
 
 def chunk_cv(cv_parsed_json: str) -> list[dict[str, str]]:

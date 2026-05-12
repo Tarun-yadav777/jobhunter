@@ -172,6 +172,10 @@ class GenerationResult(Base):
     resume_edited_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     cover_letter_edited: Mapped[str | None] = mapped_column(Text, nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # ── Generation status tracking ────────────────────────────────────────────
+    gen_status: Mapped[str] = mapped_column(Text, nullable=False, default="running")
+    current_step: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=datetime.utcnow
     )
