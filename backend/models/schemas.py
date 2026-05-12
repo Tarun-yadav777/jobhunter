@@ -1,7 +1,8 @@
+import json as _json
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ── AI output schemas (used as format= targets for Ollama structured outputs) ─
@@ -139,6 +140,18 @@ class PreferencesResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_validator("target_roles", "target_locations", "industries_to_avoid", "skills_to_grow", mode="before")
+    @classmethod
+    def parse_json_list(cls, v: Any) -> list[str]:
+        """Deserialise JSON-encoded list strings coming from the ORM layer."""
+        if isinstance(v, str):
+            try:
+                parsed = _json.loads(v)
+                return parsed if isinstance(parsed, list) else []
+            except (_json.JSONDecodeError, ValueError):
+                return []
+        return v
 
 
 class PreferencesUpdate(BaseModel):

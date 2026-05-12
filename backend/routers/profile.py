@@ -2,14 +2,26 @@ import asyncio
 import json
 import logging
 import threading
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from sqlalchemy import select, update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import selectinload
 
 from backend.config import settings
 from backend.database import get_db
-from backend.models.db import Profile
-from backend.models.schemas import ProfileCreateResponse, ProfileStatusResponse
+from backend.models.db import Profile, ProfilePreferences, Setting
+from backend.models.schemas import (
+    ActivateProfileResponse,
+    PreferencesResponse,
+    PreferencesUpdate,
+    ProfileCreateResponse,
+    ProfileDetail,
+    ProfileListItem,
+    ProfilePatch,
+    ProfileStatusResponse,
+)
 from backend.services.embedder import chunk_cv, embed_chunks
 from backend.services.parser import (
     clean_cv_text,
@@ -37,7 +49,7 @@ def _make_session_factory():
     return async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False), engine
 
 
-# ── Background task ───────────────────────────────────────────────────────────
+# ── Background tasks ──────────────────────────────────────────────────────────
 
 async def _parse_and_embed_background(profile_id: int, raw_text: str) -> None:
     """Parse CV with Ollama then embed chunks — runs in a daemon thread.
@@ -117,6 +129,26 @@ def _run_in_thread(coro) -> None:
     ).start()
 
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+async def _get_active_profile(profile_id: int, db: AsyncSession, *, load_prefs: bool = False) -> Profile:
+    """Fetch a non-deleted profile by id, raising 404 if missing.
+
+    Set load_prefs=True to eagerly load the preferences relationship.
+    """
+    stmt = select(Profile).where(Profile.id == profile_id, Profile.is_deleted == False)
+    if load_prefs:
+        stmt = stmt.options(selectinload(Profile.preferences))
+    result = await db.execute(stmt)
+    profile = result.scalar_one_or_none()
+    if not profile:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "not_found", "message": "Profile not found"},
+        )
+    return profile
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("", response_model=ProfileCreateResponse, status_code=201)
@@ -168,6 +200,19 @@ async def create_profile(
     return ProfileCreateResponse(id=profile_id, name=name, status="parsing")
 
 
+@router.get("", response_model=list[ProfileListItem])
+async def list_profiles(
+    db: AsyncSession = Depends(get_db),
+) -> list[ProfileListItem]:
+    """Return all non-deleted profiles, newest first."""
+    result = await db.execute(
+        select(Profile)
+        .where(Profile.is_deleted == False)
+        .order_by(Profile.created_at.desc())
+    )
+    return result.scalars().all()
+
+
 @router.get("/{profile_id}/status", response_model=ProfileStatusResponse)
 async def get_profile_status(
     profile_id: int,
@@ -189,6 +234,136 @@ async def get_profile_status(
         parse_status = "ready"
 
     return ProfileStatusResponse(id=profile_id, status=parse_status)
+
+
+@router.get("/{profile_id}", response_model=ProfileDetail)
+async def get_profile(
+    profile_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> ProfileDetail:
+    """Return full profile detail including parsed JSON and preferences (if set)."""
+    profile = await _get_active_profile(profile_id, db, load_prefs=True)
+    return ProfileDetail.model_validate(profile)
+
+
+@router.patch("/{profile_id}", response_model=ProfileDetail)
+async def patch_profile(
+    profile_id: int,
+    body: ProfilePatch,
+    db: AsyncSession = Depends(get_db),
+) -> ProfileDetail:
+    """Update a profile's name. Returns the updated profile."""
+    profile = await _get_active_profile(profile_id, db, load_prefs=True)
+    profile.name = body.name
+    profile.updated_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(profile, ["preferences"])
+    return ProfileDetail.model_validate(profile)
+
+
+@router.delete("/{profile_id}", status_code=204)
+async def delete_profile(
+    profile_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Soft-delete a profile by setting is_deleted=True. Returns 204 No Content."""
+    profile = await _get_active_profile(profile_id, db)
+    profile.is_deleted = True
+    profile.updated_at = datetime.utcnow()
+    # If this profile was active, clear the active_profile_id setting
+    if profile.is_active:
+        profile.is_active = False
+        await db.execute(
+            sql_update(Setting)
+            .where(Setting.key == "active_profile_id")
+            .values(value="")
+        )
+    await db.commit()
+
+
+@router.post("/{profile_id}/activate", response_model=ActivateProfileResponse)
+async def activate_profile(
+    profile_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> ActivateProfileResponse:
+    """Set this profile as active. Deactivates all other profiles atomically."""
+    profile = await _get_active_profile(profile_id, db)
+
+    # Deactivate every profile, then activate just this one
+    await db.execute(sql_update(Profile).values(is_active=False))
+    profile.is_active = True
+
+    # Sync the settings table so GET /settings reflects the change
+    await db.execute(
+        sql_update(Setting)
+        .where(Setting.key == "active_profile_id")
+        .values(value=str(profile_id))
+    )
+
+    await db.commit()
+    return ActivateProfileResponse(active_profile_id=profile_id)
+
+
+@router.get("/{profile_id}/preferences", response_model=PreferencesResponse)
+async def get_preferences(
+    profile_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> PreferencesResponse:
+    """Return preferences for a profile. Creates default preferences if none exist yet."""
+    await _get_active_profile(profile_id, db)  # ensures profile exists
+
+    result = await db.execute(
+        select(ProfilePreferences).where(ProfilePreferences.profile_id == profile_id)
+    )
+    prefs = result.scalar_one_or_none()
+
+    if not prefs:
+        # Lazily create default preferences on first access
+        prefs = ProfilePreferences(profile_id=profile_id)
+        db.add(prefs)
+        await db.commit()
+        await db.refresh(prefs)
+
+    return PreferencesResponse.model_validate(prefs)
+
+
+@router.put("/{profile_id}/preferences", response_model=PreferencesResponse)
+async def update_preferences(
+    profile_id: int,
+    body: PreferencesUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> PreferencesResponse:
+    """Create or replace preferences for a profile. All fields are required (full PUT semantics)."""
+    await _get_active_profile(profile_id, db)  # ensures profile exists
+
+    result = await db.execute(
+        select(ProfilePreferences).where(ProfilePreferences.profile_id == profile_id)
+    )
+    prefs = result.scalar_one_or_none()
+
+    if not prefs:
+        prefs = ProfilePreferences(profile_id=profile_id)
+        db.add(prefs)
+
+    # Serialise list fields to JSON strings for storage; scalars map directly
+    prefs.target_roles = json.dumps(body.target_roles)
+    prefs.target_locations = json.dumps(body.target_locations)
+    prefs.remote_preference = body.remote_preference
+    prefs.salary_min_eur = body.salary_min_eur
+    prefs.company_size_pref = body.company_size_pref
+    prefs.industries_to_avoid = json.dumps(body.industries_to_avoid)
+    prefs.skills_to_grow = json.dumps(body.skills_to_grow)
+    prefs.tone_preference = body.tone_preference
+    prefs.cover_letter_length = body.cover_letter_length
+    prefs.seniority_target = body.seniority_target
+    prefs.notice_period_weeks = body.notice_period_weeks
+    prefs.open_to_contract = body.open_to_contract
+    prefs.extra_context = body.extra_context
+    prefs.updated_at = datetime.utcnow()
+
+    await db.commit()
+    await db.refresh(prefs)
+    return PreferencesResponse.model_validate(prefs)
 
 
 @router.post("/{profile_id}/reembed", status_code=202)
