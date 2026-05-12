@@ -863,9 +863,9 @@ Track what is complete. Update this section at the end of every session.
 | Component 4 — Gap analysis | ✅ Complete | Ollama structured JSON via GAP_ANALYSIS_PROMPT; status tracking (gen_status/current_step/error_message) added to generation_results via runtime migration |
 | Component 4 — Resume tailoring + ATS | ✅ Complete | run_resume_tailoring() via Ollama+ResumeJson schema; calculate_ats_score() pure Python; PATCH /generate/{id}/resume; GET /generate/{id} full detail |
 | Component 4 — Cover letter | ✅ Complete | run_cover_letter() free-text Ollama; asyncio.gather with resume; PATCH /generate/{id}/cover-letter; POST /generate/{id}/approve; tracker + docx download |
-| Component 5 — Generation storage + API | ⬜ Not started | |
-| Component 5 — React setup + routing | ⬜ Not started | |
-| Component 5 — Profile page UI | ⬜ Not started | |
+| Component 5 — Generation storage + API | ✅ Complete | GET /generate/{id}, PATCH resume/CL, POST approve, tracker + docx |
+| Component 5 — React setup + routing | ✅ Complete | Vite 5.4.10, React 18.3.1, Tailwind 3.4.13, React Router 6.27.0; global component classes in index.css |
+| Component 5 — Profile page UI | ✅ Complete | Create profile, parse status polling, preferences form with TagInput, activate/delete/re-embed; ProfileSwitcher dropdown in header |
 | Component 5 — Paste page UI | ⬜ Not started | |
 | Component 5 — Review page UI | ⬜ Not started | |
 | Component 5 — Tracker page UI | ⬜ Not started | |

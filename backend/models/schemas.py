@@ -96,6 +96,8 @@ class ProfileListItem(BaseModel):
     id: int
     name: str
     is_active: bool
+    cv_filename: str
+    cv_parsed_json: str
     created_at: datetime
 
     model_config = {"from_attributes": True}
