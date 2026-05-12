@@ -866,8 +866,8 @@ Track what is complete. Update this section at the end of every session.
 | Component 5 — Generation storage + API | ✅ Complete | GET /generate/{id}, PATCH resume/CL, POST approve, tracker + docx |
 | Component 5 — React setup + routing | ✅ Complete | Vite 5.4.10, React 18.3.1, Tailwind 3.4.13, React Router 6.27.0; global component classes in index.css |
 | Component 5 — Profile page UI | ✅ Complete | Create profile, parse status polling, preferences form with TagInput, activate/delete/re-embed; ProfileSwitcher dropdown in header |
-| Component 5 — Paste page UI | ⬜ Not started | |
-| Component 5 — Review page UI | ⬜ Not started | |
+| Component 5 — Paste page UI | ✅ Complete | Paste.jsx: JD textarea, POST /jobs/paste, 409 duplicate handling, POST /generate, 2s poll, ProgressBar with 3 steps (rag/gap_analysis/resume), redirect to /review/:id |
+| Component 5 — Review page UI | ✅ Complete | Review.jsx: sticky GapAnalysisPanel sidebar, DiffView (word-level diff + overlay edit pattern), CL AutoTextarea, 1s debounced auto-save on blur via refs (stale closure fix), approve flow; GapAnalysisPanel, AtsPanel, DiffView components |
 | Component 5 — Tracker page UI | ⬜ Not started | |
 | End to end test | ⬜ Not started | |
 
