@@ -861,8 +861,8 @@ Track what is complete. Update this section at the end of every session.
 | Component 3 — Job paste + parse | ✅ Complete | POST /jobs/paste: text-hash dedup (pre-Ollama), semantic dedup (title+company+location sha256), already-applied check, parse_log; GET /jobs/{id} + GET /jobs; field_validator on JobDetail JSON lists |
 | Component 4 — RAG retrieval | ✅ Complete | Pure numpy cosine similarity; top-8 chunks; embed_text() helper in embedder.py |
 | Component 4 — Gap analysis | ✅ Complete | Ollama structured JSON via GAP_ANALYSIS_PROMPT; status tracking (gen_status/current_step/error_message) added to generation_results via runtime migration |
-| Component 4 — Resume tailoring + ATS | ⬜ Not started | |
-| Component 4 — Cover letter | ⬜ Not started | |
+| Component 4 — Resume tailoring + ATS | ✅ Complete | run_resume_tailoring() via Ollama+ResumeJson schema; calculate_ats_score() pure Python; PATCH /generate/{id}/resume; GET /generate/{id} full detail |
+| Component 4 — Cover letter | ✅ Complete | run_cover_letter() free-text Ollama; asyncio.gather with resume; PATCH /generate/{id}/cover-letter; POST /generate/{id}/approve; tracker + docx download |
 | Component 5 — Generation storage + API | ⬜ Not started | |
 | Component 5 — React setup + routing | ⬜ Not started | |
 | Component 5 — Profile page UI | ⬜ Not started | |

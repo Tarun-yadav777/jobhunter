@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from backend.config import settings
 from backend.database import get_db
 from backend.models.db import (
+    Application,
+    DocumentSnapshot,
     GenerationLog,
     GenerationResult,
     Job,
@@ -18,9 +20,16 @@ from backend.models.db import (
     ProfilePreferences,
 )
 from backend.models.schemas import (
+    ApproveResponse,
+    AtsResult,
+    CoverLetterEditRequest,
+    GapAnalysis,
     GenerateRequest,
     GenerateStartResponse,
+    GenerationDetailResponse,
     GenerationStatusResponse,
+    ResumeEditRequest,
+    ResumeJson,
 )
 from backend.services.generator import (
     calculate_ats_score,
@@ -304,4 +313,228 @@ async def get_generation_status(
         status=gen.gen_status,
         step=gen.current_step,
         error=gen.error_message,
+    )
+
+
+@router.get("/{generation_id}", response_model=GenerationDetailResponse)
+async def get_generation(
+    generation_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> GenerationDetailResponse:
+    """Return the full generation result including gap analysis, resume, cover letter, and ATS.
+
+    Returns 404 if not found, 409 if generation is still running or failed.
+    Uses resume_edited_json / cover_letter_edited if edits exist, otherwise the originals.
+    """
+    gen = await db.get(GenerationResult, generation_id)
+    if not gen:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "not_found", "message": "Generation not found"},
+        )
+    if gen.gen_status == "running":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "not_ready",
+                "message": f"Generation is still running (step: {gen.current_step})",
+                "status": "running",
+                "step": gen.current_step,
+            },
+        )
+    if gen.gen_status == "failed":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "generation_failed",
+                "message": gen.error_message or "Generation failed",
+            },
+        )
+
+    # Use edited versions if they exist, fall back to originals
+    resume_data = json.loads(gen.resume_edited_json or gen.resume_json)
+    cover_letter = gen.cover_letter_edited or gen.cover_letter_text
+
+    gap_analysis = GapAnalysis(**json.loads(gen.gap_analysis_json))
+    resume = ResumeJson(**resume_data)
+    ats = AtsResult(
+        score=gen.ats_score or 0,
+        matched=json.loads(gen.ats_matched),
+        missing=json.loads(gen.ats_missing),
+        total_keywords=len(json.loads(gen.ats_matched)) + len(json.loads(gen.ats_missing)),
+    )
+
+    return GenerationDetailResponse(
+        generation_id=generation_id,
+        job_id=gen.job_id,
+        gap_analysis=gap_analysis,
+        resume=resume,
+        cover_letter=cover_letter,
+        ats=ats,
+        created_at=gen.created_at,
+    )
+
+
+@router.patch("/{generation_id}/resume")
+async def patch_resume(
+    generation_id: int,
+    body: ResumeEditRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Save an edited resume JSON for a generation.
+
+    Stores in resume_edited_json; the original resume_json is preserved.
+    Returns 404 if generation not found, 409 if not yet ready.
+    """
+    gen = await db.get(GenerationResult, generation_id)
+    if not gen:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "not_found", "message": "Generation not found"},
+        )
+    if gen.gen_status != "ready":
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "not_ready", "message": "Generation is not ready for editing"},
+        )
+
+    gen.resume_edited_json = json.dumps(body.resume_edited_json)
+    await db.commit()
+    logger.info("Generation %d resume edited", generation_id)
+    return {"saved": True}
+
+
+@router.patch("/{generation_id}/cover-letter")
+async def patch_cover_letter(
+    generation_id: int,
+    body: CoverLetterEditRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Save an edited cover letter for a generation.
+
+    Stores in cover_letter_edited; the original cover_letter_text is preserved.
+    Returns 404 if generation not found, 409 if not yet ready.
+    """
+    gen = await db.get(GenerationResult, generation_id)
+    if not gen:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "not_found", "message": "Generation not found"},
+        )
+    if gen.gen_status != "ready":
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "not_ready", "message": "Generation is not ready for editing"},
+        )
+
+    gen.cover_letter_edited = body.cover_letter_edited
+    await db.commit()
+    logger.info("Generation %d cover letter edited", generation_id)
+    return {"saved": True}
+
+
+@router.post("/{generation_id}/approve", response_model=ApproveResponse, status_code=201)
+async def approve_generation(
+    generation_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> ApproveResponse:
+    """Approve a generation — creates document snapshots and an application record atomically.
+
+    Workflow:
+    1. Validate generation exists and is ready.
+    2. Guard against double-approval (409 already_approved).
+    3. Create DocumentSnapshot for resume (content_json) and cover letter (content_text).
+    4. Create Application row linking profile, job, generation, and both snapshots.
+    5. Stamp generation.approved_at and commit everything in one transaction.
+    """
+    gen = await db.get(GenerationResult, generation_id)
+    if not gen:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "not_found", "message": "Generation not found"},
+        )
+    if gen.gen_status != "ready":
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "not_ready", "message": "Generation is not ready to approve"},
+        )
+
+    # Guard against double-approval
+    if gen.approved_at is not None:
+        existing_app = await db.execute(
+            select(Application.id)
+            .where(Application.generation_id == generation_id)
+            .limit(1)
+        )
+        existing_id = existing_app.scalar_one_or_none()
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "already_approved",
+                "application_id": existing_id,
+            },
+        )
+
+    # Load job for company/role/location fields
+    job = await db.get(Job, gen.job_id)
+    if not job:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "not_found", "message": "Job not found"},
+        )
+
+    # Use edited versions if present, otherwise originals
+    resume_content = gen.resume_edited_json or gen.resume_json
+    cover_letter_content = gen.cover_letter_edited or gen.cover_letter_text
+
+    # Create document snapshots
+    resume_snap = DocumentSnapshot(
+        generation_id=generation_id,
+        doc_type="resume",
+        content_json=resume_content,
+        content_text=None,
+    )
+    cl_snap = DocumentSnapshot(
+        generation_id=generation_id,
+        doc_type="cover_letter",
+        content_json=None,
+        content_text=cover_letter_content,
+    )
+    db.add(resume_snap)
+    db.add(cl_snap)
+    await db.flush()  # get IDs without committing
+
+    # Create application record
+    app = Application(
+        profile_id=gen.profile_id,
+        job_id=gen.job_id,
+        generation_id=generation_id,
+        company=job.company,
+        role=job.title,
+        location=job.location,
+        resume_snapshot_id=resume_snap.id,
+        cl_snapshot_id=cl_snap.id,
+    )
+    db.add(app)
+
+    # Stamp approval time on the generation
+    from datetime import datetime
+    gen.approved_at = datetime.utcnow()
+
+    await db.flush()  # get application id
+    application_id = app.id
+    applied_at = app.applied_at
+
+    await db.commit()
+
+    logger.info(
+        "Generation %d approved — application_id=%d resume_snap=%d cl_snap=%d",
+        generation_id, application_id, resume_snap.id, cl_snap.id,
+    )
+
+    return ApproveResponse(
+        application_id=application_id,
+        resume_snapshot_id=resume_snap.id,
+        cl_snapshot_id=cl_snap.id,
+        applied_at=applied_at,
     )
