@@ -858,7 +858,7 @@ Track what is complete. Update this section at the end of every session.
 | Component 2 — Profile system (DB + parsing) | ✅ Complete | Background task runs in daemon thread (asyncio.run) with own engine — Starlette 1.0 cancels anyio-scoped tasks; Ollama takes ~40s for CV parse with llama3.2 |
 | Component 2 — Profile system (embeddings) | ✅ Complete | all-MiniLM-L6-v2 loaded once at module level; semantic chunking (experience/skills/education/summary); 384-dim float32 BLOB; EmbeddingRun logged; reembed endpoint wired |
 | Component 2 — Profile system (preferences API) | ✅ Complete | GET/PATCH/DELETE /profiles, POST activate (bulk deactivate + settings sync), GET/PUT preferences (lazy-create defaults, JSON list deserialisation via field_validator) |
-| Component 3 — Job paste + parse | ⬜ Not started | |
+| Component 3 — Job paste + parse | ✅ Complete | POST /jobs/paste: text-hash dedup (pre-Ollama), semantic dedup (title+company+location sha256), already-applied check, parse_log; GET /jobs/{id} + GET /jobs; field_validator on JobDetail JSON lists |
 | Component 4 — RAG retrieval | ⬜ Not started | |
 | Component 4 — Gap analysis | ⬜ Not started | |
 | Component 4 — Resume tailoring + ATS | ⬜ Not started | |

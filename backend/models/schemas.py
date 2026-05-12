@@ -225,6 +225,18 @@ class JobDetail(BaseModel):
 
     model_config = {"from_attributes": True}
 
+    @field_validator("skills_required", "skills_preferred", "ats_keywords", mode="before")
+    @classmethod
+    def parse_json_list(cls, v: Any) -> list[str]:
+        """Deserialise JSON-encoded list strings coming from the ORM layer."""
+        if isinstance(v, str):
+            try:
+                parsed = _json.loads(v)
+                return parsed if isinstance(parsed, list) else []
+            except (_json.JSONDecodeError, ValueError):
+                return []
+        return v
+
 
 # ── Generate ──────────────────────────────────────────────────────────────────
 
