@@ -504,9 +504,9 @@ export default function Profile({ activeProfileId, onProfileChange }) {
   useEffect(() => { loadProfiles() }, [])
 
   const handleCreated = (newProfile) => {
-    setProfiles((prev) => [newProfile, ...prev])
     setParsingId(newProfile.id)
     setShowNew(false)
+    loadProfiles()  // reload full list so ProfileDetail gets all fields
   }
 
   const handleActivate = async (id) => {
